@@ -1,5 +1,5 @@
 ﻿function Get-DocDBKey([System.String]$Verb = '',[System.String]$ResourceId = '',
-        [System.String]$ResourceType = '',[System.String]$Date = '',[System.String]$masterKey = '') {
+        [System.String]$ResourceType = '',[System.String]$Date = '',[System.String]$masterKey = '') {	
     Add-Type -AssemblyName System.Web
     $keyBytes = [System.Convert]::FromBase64String($masterKey) 
     $text = @($Verb.ToLowerInvariant() + "`n" + $ResourceType.ToLowerInvariant() + "`n" + $ResourceId + "`n" + $Date.ToLowerInvariant() + "`n" + "" + "`n")
@@ -34,21 +34,29 @@ function Get-DocDBCollections([string]$DBName, [string]$accountName, [string]$ke
 
 function New-DocDBHeader([string]$action = "get",[string]$resType, [string]$resourceId, [String]$key) {
     $apiDate = Get-UTCDate
-    $auth = Get-DocDBKey -Verb $action -ResourceType $resType -ResourceId $resourceId -Date $apiDate -masterKey $Key
+    $auth = Get-DocDBKey -Verb $action -ResourceType $resType -ResourceId $resourceId -Date $apiDate -masterKey $key
     $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
     $headers.Add("x-ms-date", $apiDate) 
     $headers.Add("Authorization", $auth)
-    $headers.Add("x-ms-version", '2015-12-16')
+    $headers.Add("x-ms-version", '2016-07-11')
     return $headers
 }
 
 #Post json query
-function New-DocDBQuery([switch]$NoClean, [string]$JSONQuery, [string]$DBName, [string]$collection, [string]$accountName, [string]$key){
+function New-DocDBQuery([switch]$NoClean, [string]$JSONQuery, [string]$DBName, [string]$collection, [string]$accountName, [string]$key, [switch]$EnableCrossPartitionQuery, [string]$partitionKey){	
+	Write-Host Executing Query $JSONQuery
     $BaseUri = "https://" + $accountName + ".documents.azure.com"
     $collName = "dbs/"+$DBName+"/colls/" + $collection
     $DBName = "dbs/" + $databaseName
     $headers = New-DocDBHeader -action Post -resType docs -resourceId $collName -key $key
-    $headers.Add("x-ms-documentdb-is-upsert", "true")
+    $headers.Add("x-ms-documentdb-isquery", "true")
+	
+	if ($enableCrossPartitionQuery) {
+		$headers.Add("x-ms-documentdb-query-enablecrosspartition", "true")
+	}
+	elseif (![string]::IsNullOrEmpty($partitionKey)) {
+	    $headers.Add("x-ms-documentdb-partitionkey", "[$partitionKey]")	
+	}
     $uri = $BaseUri + "/" + $collName + "/docs"
 
     Write-host ("Calling " + $uri)
@@ -67,7 +75,9 @@ function New-DocDBQuery([switch]$NoClean, [string]$JSONQuery, [string]$DBName, [
         }
     catch
         {
-        Throw $_.Exception.Message
+		$resp = (New-Object System.IO.StreamReader $_.Exception.Response.GetResponseStream()).ReadToEnd()
+		write-host $resp
+        Throw $_.Exception.ToString()
         break
         }
     if($NoClean)
